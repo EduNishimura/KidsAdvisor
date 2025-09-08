@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: kidsadvisor-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: kidsadvisor
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - kidsadvisor-network
+
+  api:
+    build: .
+    container_name: kidsadvisor-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MONGODB_URL: mongodb://admin:password123@mongodb:27017/kidsadvisor?authSource=admin
+      JWT_SECRET_KEY: your-super-secret-key-change-in-production
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+    depends_on:
+      - mongodb
+    networks:
+      - kidsadvisor-network
+    volumes:
+      - .:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  mongodb_data:
+
+networks:
+  kidsadvisor-network:
+    driver: bridge

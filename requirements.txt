@@ -1,0 +1,14 @@
+fastapi==0.111.0
+uvicorn[standard]==0.30.0
+motor==3.3.2
+pymongo[srv]==4.8.0
+python-dotenv==1.0.1
+scikit-learn==1.5.1
+numpy==1.26.4
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+pydantic==2.5.0
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+email-validator==2.1.0
