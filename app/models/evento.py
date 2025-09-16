@@ -1,65 +1,54 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from pydantic import BaseModel, Field, HttpUrl
+from typing import Optional, Dict
 from datetime import datetime
-from bson import ObjectId
 
-class PyObjectId(ObjectId):
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source_type, handler):
-        from pydantic_core import core_schema
-        return core_schema.no_info_plain_validator_function(cls.validate)
 
-    @classmethod
-    def validate(cls, v):
-        if not ObjectId.is_valid(v):
-            raise ValueError("Invalid objectid")
-        return ObjectId(v)
+class Address(BaseModel):
+    name: str
+    address: Optional[str] = None
+    address_num: Optional[str] = None
+    address_alt: Optional[str] = None
+    neighborhood: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    country: Optional[str] = None
+    lon: Optional[str] = None
+    lat: Optional[str] = None
 
-    @classmethod
-    def __get_pydantic_json_schema__(cls, field_schema, handler):
-        return {"type": "string"}
 
-class EventoBase(BaseModel):
-    nome: str
-    descricao: str
-    categoria: str
-    localizacao: str
-    data: datetime
-    idade_recomendada: str
-    preco: float
-    organizadorId: str
+class Host(BaseModel):
+    name: str
+    description: Optional[str] = None
 
-class EventoCreate(EventoBase):
-    pass
 
-class Evento(EventoBase):
-    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
-    likes: int = Field(default=0)
-    data_criacao: datetime = Field(default_factory=datetime.utcnow)
+class Category(BaseModel):
+    name: str
+
+
+class EventCreate(BaseModel):
+    id: Optional[str] = None
+    reference_id: Optional[int] = None
+    name: str
+    detail: Optional[str] = None
+    start_date: datetime
+    end_date: datetime
+    private_event: Optional[int] = 0
+    published: Optional[int] = 1
+    cancelled: Optional[int] = 0
+    image: Optional[HttpUrl] = None
+    url: Optional[HttpUrl] = None
+    address: Optional[Address] = None
+    host: Optional[Host] = None
+    category_prim: Optional[Category] = None
+    category_sec: Optional[Category] = None
+    organizer_id: str  # quem cadastrou no sistema
+
+
+class EventOut(EventCreate):
+    db_id: str = Field(..., alias="id")  # id interno do Mongo
+    created_at: datetime
 
     class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
-
-class EventoResponse(BaseModel):
-    id: str
-    nome: str
-    descricao: str
-    categoria: str
-    localizacao: str
-    data: datetime
-    idade_recomendada: str
-    preco: float
-    organizadorId: str
-    likes: int
-    data_criacao: datetime
-
-class EventoUpdate(BaseModel):
-    nome: Optional[str] = None
-    descricao: Optional[str] = None
-    categoria: Optional[str] = None
-    localizacao: Optional[str] = None
-    data: Optional[datetime] = None
-    idade_recomendada: Optional[str] = None
-    preco: Optional[float] = None
+        allow_population_by_field_name = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
