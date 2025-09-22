@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.database import db
 from app.auth import get_current_user
 from app.models.evento import EventCreate, EventOut
+from app.services.scraper_clubinho import scrape_all
 from datetime import datetime
 from bson.objectid import ObjectId
 import httpx
@@ -100,3 +101,21 @@ async def import_sympla_events(sympla_token: str, current_user=Depends(get_curre
                 inserted.append(str(res.inserted_id))
 
         return {"imported": len(inserted), "ids": inserted}
+
+
+@router.post("/scrape-clubinho")
+async def scrape_clubinho_events(current_user=Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=403, detail="Somente administradores podem importar eventos")
+
+    events = await scrape_all()
+    if not events:
+        return {"message": "Nenhum evento encontrado"}
+
+    result = await db.events.insert_many(events)
+
+    return {
+        "message": f"{len(result.inserted_ids)} eventos inseridos",
+        "ids": [str(_id) for _id in result.inserted_ids]
+    }
