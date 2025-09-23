@@ -107,13 +107,38 @@ async def import_sympla_events(sympla_token: str, current_user=Depends(get_curre
 async def scrape_clubinho_events(current_user=Depends(get_current_user)):
     if current_user.get("role") != "admin":
         raise HTTPException(
-            status_code=403, detail="Somente administradores podem importar eventos")
+            status_code=403,
+            detail="Somente administradores podem importar eventos"
+        )
 
-    events = await scrape_all()
-    if not events:
+    raw_events = scrape_all()
+
+    if not raw_events:
         return {"message": "Nenhum evento encontrado"}
 
-    result = await db.events.insert_many(events)
+    docs = []
+    for ev in raw_events:
+        doc = {
+            "name": ev.get("name"),
+            "detail": ev.get("detail"),
+            "start_date": ev.get("start_date"),   # já vem do scraper
+            "end_date": ev.get("end_date"),       # já vem do scraper
+            "private_event": ev.get("private_event", 0),
+            "published": ev.get("published", 1),
+            "cancelled": ev.get("cancelled", 0),
+            "image": ev.get("image"),
+            "url": ev.get("url"),
+            "address": ev.get("address"),  # já vem como objeto
+            "host": ev.get("host"),
+            "category_prim": ev.get("category_prim"),
+            "category_sec": ev.get("category_sec"),
+            "organizer_id": str(current_user["_id"]),
+            "created_at": ev.get("created_at", datetime.utcnow()),
+            "raw_days": ev.get("raw_days"),
+        }
+        docs.append(doc)
+
+    result = await db.events.insert_many(docs)
 
     return {
         "message": f"{len(result.inserted_ids)} eventos inseridos",

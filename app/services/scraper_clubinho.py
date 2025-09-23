@@ -7,6 +7,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+import re
 
 BASE_URL = "https://clubinhodeofertas.com.br/sao-paulo/busca?genres="
 
@@ -29,30 +30,60 @@ def start_driver():
     return webdriver.Chrome(options=options)
 
 
+def parse_days(days_text: str):
+    """Extrai start_date e end_date a partir do campo days_text."""
+    if not days_text:
+        now = datetime.utcnow()
+        return now, now
+
+    # Remove o prefixo "Dias"
+    clean_text = days_text.replace("Dias", "").strip()
+
+    # Extrai pedaços como "27", "04/10", "11/10" etc
+    parts = re.findall(r"\d{1,2}(?:/\d{1,2})?", clean_text)
+
+    dates = []
+    current_year = datetime.utcnow().year
+    current_month = datetime.utcnow().month
+
+    for part in parts:
+        if "/" in part:  # formato dd/mm
+            try:
+                dt = datetime.strptime(f"{part}/{current_year}", "%d/%m/%Y")
+                dates.append(dt)
+            except:
+                continue
+        else:  # só o dia (ex: "27")
+            try:
+                dt = datetime(current_year, current_month, int(part))
+                dates.append(dt)
+            except:
+                continue
+
+    if not dates:
+        now = datetime.utcnow()
+        return now, now
+
+    return min(dates), max(dates)
+
+
 def scrape_category(driver, category: str):
     url = BASE_URL + category.replace(" ", "%20")
     driver.get(url)
 
     events = []
     try:
-        # 1. SELETOR CORRIGIDO: Agora busca pela tag 'a' com a classe 'product-thumb', que corresponde a cada card.
         cards_xpath = "//a[@class='product-thumb']"
-
-        # 2. ESPERA EXPLÍCITA: Aguarda até 10 segundos para que os cards apareçam na página. É mais eficiente que time.sleep().
         WebDriverWait(driver, 10).until(
             EC.presence_of_all_elements_located((By.XPATH, cards_xpath))
         )
-
         cards = driver.find_elements(By.XPATH, cards_xpath)
 
     except TimeoutException:
-        print(
-            f"Nenhum evento encontrado para a categoria '{category}' ou a página não carregou a tempo.")
+        print(f"Nenhum evento encontrado para a categoria '{category}'")
         return []
 
     for card in cards:
-        # A extração de dados já estava quase perfeita.
-        # Como o 'card' agora é o elemento 'a', ajustamos a busca do link.
         try:
             name = card.find_element(
                 By.CLASS_NAME, "product-thumb__title").text
@@ -60,7 +91,6 @@ def scrape_category(driver, category: str):
             name = None
 
         try:
-            # O link é o atributo 'href' do próprio card.
             link = card.get_attribute("href")
         except:
             link = None
@@ -81,29 +111,40 @@ def scrape_category(driver, category: str):
         except:
             days = None
 
+        start_date, end_date = parse_days(days)
+
         event_doc = {
-            # "id" e "reference_id" serão gerados pelo seu banco de dados ou outra lógica
             "name": name,
-            # Detalhes podem ser obtidos acessando a 'url' de cada evento (passo extra)
             "detail": None,
-            "start_date": None,  # Datas precisariam de tratamento a partir do campo 'days'
-            "end_date": None,
+            "start_date": start_date,
+            "end_date": end_date,
             "private_event": 0,
             "published": 1,
             "cancelled": 0,
             "image": image,
             "url": link,
-            "address": venue,  # Simplificado para string, conforme modelo do FastAPI
-            "host": None,
-            "category_prim": category,
+            "address": {
+                "name": venue,
+                "address": None,
+                "address_num": None,
+                "address_alt": None,
+                "neighborhood": None,
+                "city": None,
+                "state": None,
+                "zip_code": None,
+                "country": None,
+                "lon": None,
+                "lat": None,
+            },
+            "host": {"name": None, "description": None},
+            "category_prim": {"name": category},
             "category_sec": None,
-            # "organizer_id" deve ser preenchido na rota da API com o ID do admin logado
+            "organizer_id": None,  # preenchido pela API
             "created_at": datetime.utcnow(),
-            "raw_days": days  # Campo extra para processar as datas posteriormente
+            "raw_days": days
         }
 
         events.append(event_doc)
-        print(events)
 
     return events
 
