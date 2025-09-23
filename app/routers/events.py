@@ -11,6 +11,10 @@ router = APIRouter()
 
 
 def event_to_out(event_doc: dict) -> dict:
+    host = event_doc.get("host")
+    # Se host não for dict ou não tiver name, retorna None
+    if not isinstance(host, dict) or not host.get("name"):
+        host = None
     return {
         "id": str(event_doc["_id"]),   # id do Mongo
         "reference_id": event_doc.get("reference_id"),
@@ -24,7 +28,7 @@ def event_to_out(event_doc: dict) -> dict:
         "image": event_doc.get("image"),
         "url": event_doc.get("url"),
         "address": event_doc.get("address"),
-        "host": event_doc.get("host"),
+        "host": host,
         "category_prim": event_doc.get("category_prim"),
         "category_sec": event_doc.get("category_sec"),
         "organizer_id": event_doc["organizer_id"],
@@ -134,7 +138,6 @@ async def scrape_clubinho_events(current_user=Depends(get_current_user)):
             "category_sec": ev.get("category_sec"),
             "organizer_id": str(current_user["_id"]),
             "created_at": ev.get("created_at", datetime.utcnow()),
-            "raw_days": ev.get("raw_days"),
         }
         docs.append(doc)
 
@@ -144,3 +147,15 @@ async def scrape_clubinho_events(current_user=Depends(get_current_user)):
         "message": f"{len(result.inserted_ids)} eventos inseridos",
         "ids": [str(_id) for _id in result.inserted_ids]
     }
+
+
+@router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_event(event_id: str, current_user=Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=403, detail="Somente administradores podem deletar eventos")
+
+    res = await db.events.delete_one({"_id": ObjectId(event_id)})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+    return

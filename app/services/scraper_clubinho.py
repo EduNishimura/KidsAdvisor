@@ -141,7 +141,6 @@ def scrape_category(driver, category: str):
             "category_sec": None,
             "organizer_id": None,  # preenchido pela API
             "created_at": datetime.utcnow(),
-            "raw_days": days
         }
 
         events.append(event_doc)
