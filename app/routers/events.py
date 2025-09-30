@@ -159,3 +159,13 @@ async def delete_event(event_id: str, current_user=Depends(get_current_user)):
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Evento não encontrado")
     return
+
+
+@router.delete("/eventos", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_all_events(current_user=Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=403, detail="Somente administradores podem deletar eventos")
+
+    await db.events.delete_many({})
+    return
