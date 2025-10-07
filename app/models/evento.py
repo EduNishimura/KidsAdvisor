@@ -42,7 +42,8 @@ class EventCreate(BaseModel):
     host: Optional[Host] = None
     category_prim: Optional[Category] = None
     category_sec: Optional[Category] = None
-    organizer_id: str  # quem cadastrou no sistema
+    organizer_id: str
+    tags: list[str] = []
 
 
 class EventOut(EventCreate):

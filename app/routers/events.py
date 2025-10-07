@@ -6,6 +6,7 @@ from app.services.scraper_clubinho import scrape_all
 from datetime import datetime
 from bson.objectid import ObjectId
 import httpx
+from app.routers.categories import DEFAULT_TAGS
 
 router = APIRouter()
 
@@ -33,6 +34,7 @@ def event_to_out(event_doc: dict) -> dict:
         "category_sec": event_doc.get("category_sec"),
         "organizer_id": event_doc["organizer_id"],
         "created_at": event_doc["created_at"],
+        "tags": event_doc.get("tags", []),
     }
 
 
@@ -54,6 +56,10 @@ async def create_event(event: EventCreate, current_user=Depends(get_current_user
     if doc.get("url"):
         doc["url"] = str(doc["url"])
     # --- FIM DA CORREÇÃO ---
+
+    for tag in event.tags:
+        if tag not in DEFAULT_TAGS:
+            raise HTTPException(status_code=400, detail=f"Tag inválida: {tag}")
 
     res = await db.events.insert_one(doc)
     created = await db.events.find_one({"_id": res.inserted_id})
@@ -125,14 +131,14 @@ async def scrape_clubinho_events(current_user=Depends(get_current_user)):
         doc = {
             "name": ev.get("name"),
             "detail": ev.get("detail"),
-            "start_date": ev.get("start_date"),   # já vem do scraper
-            "end_date": ev.get("end_date"),       # já vem do scraper
+            "start_date": ev.get("start_date"),
+            "end_date": ev.get("end_date"),
             "private_event": ev.get("private_event", 0),
             "published": ev.get("published", 1),
             "cancelled": ev.get("cancelled", 0),
             "image": ev.get("image"),
             "url": ev.get("url"),
-            "address": ev.get("address"),  # já vem como objeto
+            "address": ev.get("address"),
             "host": ev.get("host"),
             "category_prim": ev.get("category_prim"),
             "category_sec": ev.get("category_sec"),
@@ -169,3 +175,11 @@ async def delete_all_events(current_user=Depends(get_current_user)):
 
     await db.events.delete_many({})
     return
+
+
+@router.get("/{event_id}", response_model=EventOut)
+async def get_event_by_id(event_id: str):
+    event = await db.events.find_one({"_id": ObjectId(event_id)})
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento não encontrado")
+    return event_to_out(event)
