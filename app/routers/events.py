@@ -70,9 +70,27 @@ async def create_event(event: EventCreate, current_user=Depends(get_current_user
 async def list_events():
     events = []
     async for ev in db.events.find({}).sort("start_date", 1):
-        events.append(event_to_out(ev))
-    return events
+        event_data = event_to_out(ev)
 
+        # Conta o número de likes do evento
+        likes_count = await db.event_reactions.count_documents({
+            "event_id": ObjectId(ev["_id"]),
+            "reaction": "like"
+        })
+
+        # Conta o número de dislikes (opcional)
+        dislikes_count = await db.event_reactions.count_documents({
+            "event_id": ObjectId(ev["_id"]),
+            "reaction": "dislike"
+        })
+
+        # Adiciona as contagens ao dicionário do evento
+        event_data["likes"] = likes_count
+        event_data["dislikes"] = dislikes_count
+
+        events.append(event_data)
+
+    return events
 # Importar eventos da Sympla (simplificado)
 
 
