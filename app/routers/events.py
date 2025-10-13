@@ -173,6 +173,32 @@ async def scrape_clubinho_events(current_user=Depends(get_current_user)):
     }
 
 
+@router.get("/recomendados")
+async def recomendar_eventos(current_user=Depends(get_current_user)):
+    """
+    Recomenda eventos com base nas tags preferidas do usuário.
+    """
+    user = await db.users.find_one({"_id": ObjectId(current_user["_id"])})
+    user_tags = user.get("preferred_tags", [])
+
+    if not user_tags:
+        raise HTTPException(
+            status_code=400, detail="Usuário não definiu tags de preferência")
+
+    recomendados = []
+    async for ev in db.events.find({"tags": {"$in": user_tags}}):
+        recomendados.append({
+            "id": str(ev["_id"]),
+            "name": ev.get("name"),
+            "tags": ev.get("tags", []),
+            "image": ev.get("image"),
+            "address": ev.get("address"),
+            "start_date": ev.get("start_date")
+        })
+
+    return {"recomendados": recomendados}
+
+
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_event(event_id: str, current_user=Depends(get_current_user)):
     if current_user.get("role") != "admin":

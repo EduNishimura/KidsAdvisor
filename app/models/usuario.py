@@ -17,6 +17,7 @@ class UserCreate(BaseModel):
     password: str
     role: Optional[str] = "parent"
     children: Optional[List[Child]] = []
+    personal_tags: Optional[List[str]] = []
 
 
 class UserOut(BaseModel):

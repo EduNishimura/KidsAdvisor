@@ -1,3 +1,4 @@
+from app.routers.categories import DEFAULT_TAGS
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.models.usuario import UserCreate, UserOut
 from app.database import db
@@ -107,3 +108,24 @@ async def add_friend(id: str, idAmigo: str, current_user=Depends(get_current_use
     })
 
     return {"message": "Friend added"}
+
+
+@router.post("/me/tags")
+async def definir_tags_usuario(tags: list[str], current_user=Depends(get_current_user)):
+    """
+    Permite que o usuário defina até 5 tags pessoais (preferências).
+    Essas tags são usadas para recomendações de eventos.
+    """
+    if not (1 <= len(tags) <= 5):
+        raise HTTPException(status_code=400, detail="Informe entre 1 e 5 tags")
+
+    for tag in tags:
+        if tag not in DEFAULT_TAGS:
+            raise HTTPException(status_code=400, detail=f"Tag inválida: {tag}")
+
+    await db.users.update_one(
+        {"_id": ObjectId(current_user["_id"])},
+        {"$set": {"preferred_tags": tags}}
+    )
+
+    return {"message": "Tags de preferência atualizadas com sucesso", "tags": tags}
