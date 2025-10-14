@@ -88,41 +88,71 @@ async def listar_participantes_evento(event_id: str, current_user=Depends(get_cu
     return participants
 
 
-@router.post("/{event_id}/tags")
-async def adicionar_tags_evento(event_id: str, tags: list[str], current_user=Depends(get_current_user)):
+@router.post("/{event_id}/classificar-tags")
+async def classificar_tags_evento(
+    event_id: str,
+    tags: list[str],
+    current_user=Depends(get_current_user)
+):
     """
-    Usuário adiciona de 1 a 3 tags ao evento em que participou.
-    As tags são adicionadas diretamente no documento do evento
-    e usadas para recomendações futuras.
+    Usuário participante pode classificar um evento com até 3 tags.
+    As tags são agregadas no campo 'community_tags_count' do evento.
     """
-
-    # 1️⃣ Verifica se o evento existe
-    event = await db.events.find_one({"_id": ObjectId(event_id)})
-    if not event:
-        raise HTTPException(status_code=404, detail="Evento não encontrado")
-
-    # 2️⃣ Verifica se o usuário participou do evento
-    participation = await db.event_participants.find_one({
-        "event_id": ObjectId(event_id),
-        "user_id": ObjectId(current_user["_id"])
-    })
-    if not participation:
-        raise HTTPException(
-            status_code=403, detail="Usuário não participou deste evento")
-
-    # 3️⃣ Valida quantidade de tags
+    # ✅ valida quantidade
     if not (1 <= len(tags) <= 3):
-        raise HTTPException(status_code=400, detail="Informe entre 1 e 3 tags")
+        raise HTTPException(
+            status_code=400, detail="Escolha entre 1 e 3 tags.")
 
-    # 4️⃣ Valida se todas as tags estão dentro da lista fixa
+    # ✅ valida tags válidas
     for tag in tags:
         if tag not in DEFAULT_TAGS:
             raise HTTPException(status_code=400, detail=f"Tag inválida: {tag}")
 
-    # 5️⃣ Atualiza o evento com as novas tags, evitando duplicatas
+    # ✅ verifica se evento existe
+    event = await db.events.find_one({"_id": ObjectId(event_id)})
+    if not event:
+        raise HTTPException(status_code=404, detail="Evento não encontrado.")
+
+    # ✅ verifica se usuário participou do evento
+    participou = await db.event_participants.find_one({
+        "event_id": ObjectId(event_id),
+        "user_id": ObjectId(current_user["_id"]),
+        "status": "confirmed"
+    })
+    if not participou:
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas usuários que participaram do evento podem classificá-lo."
+        )
+
+    # ✅ cria ou atualiza campo de contagem
+    community_tags = event.get("community_tags_count", {})
+
+    for tag in tags:
+        community_tags[tag] = community_tags.get(tag, 0) + 1
+
     await db.events.update_one(
         {"_id": ObjectId(event_id)},
-        {"$addToSet": {"tags": {"$each": tags}}}
+        {"$set": {"community_tags_count": community_tags}}
     )
 
-    return {"message": "Tags adicionadas com sucesso", "tags_adicionadas": tags}
+    return {
+        "message": "Classificação registrada com sucesso.",
+        "community_tags_count": community_tags
+    }
+
+
+@router.get("/me/eventos")
+async def listar_meus_eventos(current_user=Depends(get_current_user)):
+    """Lista todos os eventos em que o usuário autenticado está inscrito"""
+    participations = []
+    async for p in db.event_participants.find({"user_id": ObjectId(current_user["_id"])}):
+        event = await db.events.find_one({"_id": p["event_id"]})
+        if event:
+            participations.append({
+                "event_id": str(event["_id"]),
+                "event_name": event.get("name"),
+                "status": p.get("status"),
+                "inscrito_em": p.get("created_at")
+            })
+    return participations

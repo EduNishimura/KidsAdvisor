@@ -173,30 +173,118 @@ async def scrape_clubinho_events(current_user=Depends(get_current_user)):
     }
 
 
-@router.get("/recomendados")
-async def recomendar_eventos(current_user=Depends(get_current_user)):
+@router.get("/relacionados")
+async def listar_eventos_relacionados(current_user=Depends(get_current_user)):
     """
-    Recomenda eventos com base nas tags preferidas do usuário.
+    Retorna eventos relacionados com base em:
+    - Eventos curtidos pelo usuário
+    - Tags dos eventos e community_tags_count
+    - Categorias primária/secundária
     """
-    user = await db.users.find_one({"_id": ObjectId(current_user["_id"])})
-    user_tags = user.get("preferred_tags", [])
 
-    if not user_tags:
+    user_id = ObjectId(current_user["_id"])
+
+    # 🔹 1. Buscar eventos curtidos pelo usuário
+    liked_cursor = db.event_reactions.find({
+        "user_id": user_id,
+        "reaction": "like"
+    })
+    liked_event_ids = [doc["event_id"] async for doc in liked_cursor]
+
+    if not liked_event_ids:
         raise HTTPException(
-            status_code=400, detail="Usuário não definiu tags de preferência")
+            status_code=404, detail="Usuário ainda não curtiu nenhum evento.")
 
-    recomendados = []
-    async for ev in db.events.find({"tags": {"$in": user_tags}}):
-        recomendados.append({
-            "id": str(ev["_id"]),
-            "name": ev.get("name"),
-            "tags": ev.get("tags", []),
-            "image": ev.get("image"),
-            "address": ev.get("address"),
-            "start_date": ev.get("start_date")
-        })
+    # 🔹 2. Coletar tags e categorias dos eventos curtidos
+    liked_tags = set()
+    liked_categories = set()
 
-    return {"recomendados": recomendados}
+    async for ev in db.events.find({"_id": {"$in": liked_event_ids}}):
+        liked_tags.update(ev.get("tags", []))
+
+        # categorias prim/sec
+        if ev.get("category_prim"):
+            liked_categories.add(ev["category_prim"].get("name"))
+        if ev.get("category_sec"):
+            liked_categories.add(ev["category_sec"].get("name"))
+
+        # adiciona as community_tags mais votadas (top 3)
+        if "community_tags_count" in ev:
+            sorted_tags = sorted(
+                ev["community_tags_count"].items(),
+                key=lambda x: x[1],
+                reverse=True
+            )
+            top_tags = [t[0] for t in sorted_tags[:3]]
+            liked_tags.update(top_tags)
+
+    if not liked_tags and not liked_categories:
+        raise HTTPException(
+            status_code=404, detail="Não há dados suficientes para recomendações.")
+
+    # 🔹 Buscar eventos participados pelo usuário
+    participated_cursor = db.event_participants.find({
+        "user_id": user_id,
+        "status": "confirmed"
+    })
+    participated_event_ids = [p["event_id"] async for p in participated_cursor]
+
+    # 🔹 Combinar curtidos + participados
+    excluded_event_ids = list(set(liked_event_ids + participated_event_ids))
+
+    # 🔹 3. Buscar outros eventos com tags OU categorias semelhantes
+    related_cursor = db.events.find({
+        "$and": [
+            {"_id": {"$nin": excluded_event_ids}},
+            {
+                "$or": [
+                    {"tags": {"$in": list(liked_tags)}},
+                    {"category_prim.name": {"$in": list(liked_categories)}},
+                    {"category_sec.name": {"$in": list(liked_categories)}}
+                ]
+            }
+        ]
+    })
+
+    related_events = []
+    async for ev in related_cursor:
+        score = 0
+
+        # +1 para cada tag em comum
+        score += len(set(ev.get("tags", [])) & liked_tags)
+
+        # +1 para cada tag da comunidade que bate
+        if "community_tags_count" in ev:
+            comm_tags = set(ev["community_tags_count"].keys())
+            score += len(comm_tags & liked_tags)
+
+        # +2 para categoria primária equivalente
+        if ev.get("category_prim") and ev["category_prim"].get("name") in liked_categories:
+            score += 2
+
+        # +1 para categoria secundária equivalente
+        if ev.get("category_sec") and ev["category_sec"].get("name") in liked_categories:
+            score += 1
+
+        if score > 0:
+            related_events.append({
+                "id": str(ev["_id"]),
+                "name": ev.get("name"),
+                "tags": ev.get("tags", []),
+                "category_prim": ev.get("category_prim"),
+                "category_sec": ev.get("category_sec"),
+                "image": ev.get("image"),
+                "score": score
+            })
+
+    # 🔹 4. Ordena por afinidade
+    related_events.sort(key=lambda e: e["score"], reverse=True)
+
+    return {
+        "related_tags": list(liked_tags),
+        "related_categories": list(liked_categories),
+        "related_events": related_events
+    }
 
 
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
