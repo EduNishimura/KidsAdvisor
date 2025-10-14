@@ -7,6 +7,9 @@ from datetime import datetime
 from bson.objectid import ObjectId
 import httpx
 from app.routers.categories import DEFAULT_TAGS
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
 router = APIRouter()
 
@@ -284,6 +287,105 @@ async def listar_eventos_relacionados(current_user=Depends(get_current_user)):
         "related_tags": list(liked_tags),
         "related_categories": list(liked_categories),
         "related_events": related_events
+    }
+
+
+@router.get("/recomendados-tfidf")
+async def recomendar_eventos_tfidf(current_user=Depends(get_current_user)):
+    """
+    Recomenda eventos usando TF-IDF + Similaridade do Cosseno,
+    considerando tags, categorias e descrições.
+    """
+    user_id = ObjectId(current_user["_id"])
+
+    # 🔹 Buscar eventos curtidos e participados
+    liked_cursor = db.event_reactions.find(
+        {"user_id": user_id, "reaction": "like"})
+    liked_event_ids = [doc["event_id"] async for doc in liked_cursor]
+
+    participated_cursor = db.event_participants.find({
+        "user_id": user_id,
+        "status": "confirmed"
+    })
+    participated_event_ids = [p["event_id"] async for p in participated_cursor]
+
+    excluded_event_ids = list(set(liked_event_ids + participated_event_ids))
+
+    # 🔹 Buscar todos os eventos publicados
+    events = [e async for e in db.events.find({"published": 1})]
+    if not events:
+        raise HTTPException(
+            status_code=404, detail="Nenhum evento encontrado.")
+
+    # 🔹 Montar texto base de cada evento
+    corpus = []
+    event_ids = []
+    for e in events:
+        text_parts = []
+
+        # tags e categorias
+        text_parts.extend(e.get("tags", []))
+        if e.get("community_tags_count"):
+            text_parts.extend(list(e["community_tags_count"].keys()))
+        if e.get("category_prim"):
+            text_parts.append(e["category_prim"].get("name", ""))
+        if e.get("category_sec"):
+            text_parts.append(e["category_sec"].get("name", ""))
+
+        # descrição
+        if e.get("detail"):
+            text_parts.append(e["detail"])
+
+        # texto final
+        text = " ".join(text_parts)
+        corpus.append(text)
+        event_ids.append(e["_id"])
+
+    # 🔹 Criar vetor TF-IDF
+    vectorizer = TfidfVectorizer()
+    tfidf_matrix = vectorizer.fit_transform(corpus)
+
+    # 🔹 Construir texto do perfil do usuário
+    user_tags = set(current_user.get("preferred_tags", []))
+
+    # Adiciona tags e categorias dos eventos curtidos
+    async for ev in db.events.find({"_id": {"$in": liked_event_ids}}):
+        user_tags.update(ev.get("tags", []))
+        if ev.get("category_prim"):
+            user_tags.add(ev["category_prim"].get("name"))
+        if ev.get("category_sec"):
+            user_tags.add(ev["category_sec"].get("name"))
+
+    user_profile_text = " ".join(user_tags)
+    user_vector = vectorizer.transform([user_profile_text])
+
+    # 🔹 Calcular similaridade do cosseno
+    similarities = cosine_similarity(user_vector, tfidf_matrix)[0]
+
+    # 🔹 Ordenar eventos por afinidade
+    top_indices = np.argsort(similarities)[::-1]
+
+    recomendados = []
+    for idx in top_indices:
+        ev = events[idx]
+        if ev["_id"] in excluded_event_ids:
+            continue  # não recomenda eventos já vistos
+        score = float(similarities[idx])
+        if score <= 0:
+            continue
+        recomendados.append({
+            "id": str(ev["_id"]),
+            "name": ev.get("name"),
+            "score": round(score, 3),
+            "tags": ev.get("tags", []),
+            "category_prim": ev.get("category_prim"),
+            "image": ev.get("image"),
+            "detail": (ev.get("detail") or "")[:120] + "..."
+        })
+
+    return {
+        "user_tags_profile": list(user_tags),
+        "recommended_events": recomendados[:10]  # limita a top 10
     }
 
 
