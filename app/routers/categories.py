@@ -20,6 +20,17 @@ DEFAULT_TAGS = [
     "Day Use/Passeio",
     "Familiar",
     "Infantil/Crianças",
+    "Esportivo",
+    "Gastronômico",
+    "Oficina/Workshop",
+    "Tecnologia",
+    "Artes",
+    "Dança",
+    "Literatura",
+    "Compras",
+    "Feira",
+    "Festa",
+    "Noturno",
 ]
 
 

@@ -67,6 +67,49 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     return {"access_token": token, "token_type": "bearer"}
 
 
+@router.get("/friends-list")
+async def get_friends(current_user=Depends(get_current_user)):
+    """
+    Retorna a lista de amigos do usuário autenticado.
+    """
+    user_id = str(current_user["_id"])
+    
+    # Busca o usuário atual
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Pega a lista de IDs dos amigos
+    friend_ids = user.get("friends", [])
+    
+    if not friend_ids:
+        return {"friends": [], "count": 0}
+    
+    # Converte os IDs para ObjectId para buscar os dados dos amigos
+    friend_object_ids = [ObjectId(friend_id) for friend_id in friend_ids]
+    
+    # Busca os dados dos amigos
+    friends_cursor = db.users.find({"_id": {"$in": friend_object_ids}})
+    friends = await friends_cursor.to_list(length=None)
+    
+    # Converte para o formato de saída
+    friends_data = []
+    for friend in friends:
+        friends_data.append({
+            "id": str(friend["_id"]),
+            "name": friend["name"],
+            "email": friend["email"],
+            "role": friend.get("role", "parent"),
+            "level": friend.get("level", 1),
+            "xp": friend.get("xp", 0)
+        })
+    
+    return {
+        "friends": friends_data,
+        "count": len(friends_data)
+    }
+
+
 @router.get("/{id}", response_model=UserOut)
 async def get_user(id: str, current_user=Depends(get_current_user)):
     user = await db.users.find_one({"_id": ObjectId(id)})
@@ -75,17 +118,16 @@ async def get_user(id: str, current_user=Depends(get_current_user)):
     return user_to_out(user)
 
 
-@router.post("/{id}/amigos/{idAmigo}")
-async def add_friend(id: str, idAmigo: str, current_user=Depends(get_current_user)):
-    # only allow the authenticated user to add friends to their own account
-    if str(current_user["_id"]) != id:
-        raise HTTPException(
-            status_code=403, detail="You can only add friends on your own account")
-    if id == idAmigo:
+@router.post("/amigos/{idAmigo}")
+async def add_friend(idAmigo: str, current_user=Depends(get_current_user)):
+    # get the current user's ID from the authenticated user
+    user_id = str(current_user["_id"])
+    
+    if user_id == idAmigo:
         raise HTTPException(
             status_code=400, detail="Cannot add yourself as friend")
 
-    user = await db.users.find_one({"_id": ObjectId(id)})
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
     friend = await db.users.find_one({"_id": ObjectId(idAmigo)})
     if not user or not friend:
         raise HTTPException(status_code=404, detail="User or friend not found")
@@ -96,7 +138,7 @@ async def add_friend(id: str, idAmigo: str, current_user=Depends(get_current_use
     if friend_id_str in user.get("friends", []):
         return {"message": "Already friends"}
 
-    await db.users.update_one({"_id": ObjectId(id)}, {"$addToSet": {"friends": friend_id_str}})
+    await db.users.update_one({"_id": ObjectId(user_id)}, {"$addToSet": {"friends": friend_id_str}})
     await db.users.update_one({"_id": ObjectId(idAmigo)}, {"$addToSet": {"friends": user_id_str}})
 
     # optional: create a friendship document for audit

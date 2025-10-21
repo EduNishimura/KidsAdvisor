@@ -24,8 +24,8 @@ def event_to_out(event_doc: dict) -> dict:
         "reference_id": event_doc.get("reference_id"),
         "name": event_doc.get("name"),
         "detail": event_doc.get("detail"),
-        "start_date": event_doc["start_date"],
-        "end_date": event_doc["end_date"],
+        "start_date": event_doc.get("start_date"),
+        "end_date": event_doc.get("end_date"),
         "private_event": event_doc.get("private_event", 0),
         "published": event_doc.get("published", 1),
         "cancelled": event_doc.get("cancelled", 0),
@@ -35,8 +35,8 @@ def event_to_out(event_doc: dict) -> dict:
         "host": host,
         "category_prim": event_doc.get("category_prim"),
         "category_sec": event_doc.get("category_sec"),
-        "organizer_id": event_doc["organizer_id"],
-        "created_at": event_doc["created_at"],
+        "organizer_id": event_doc.get("organizer_id"),
+        "created_at": event_doc.get("created_at"),
         "tags": event_doc.get("tags", []),
     }
 
