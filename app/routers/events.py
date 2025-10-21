@@ -11,6 +11,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import re
+from collections import defaultdict
 
 router = APIRouter()
 
@@ -418,6 +419,97 @@ async def recomendar_eventos_tfidf(current_user=Depends(get_current_user)):
     return {
         "user_tags_profile": list(user_tags),
         "recommended_events": recomendados[:10]  # limita a top 10
+    }
+
+
+@router.get("/recomendados-colaborativo")
+async def recomendar_eventos_colaborativo(current_user=Depends(get_current_user)):
+    """
+    Recomenda eventos com base em filtragem colaborativa.
+    Usa similaridade entre usuários (curtidas e participações em comum).
+    """
+
+    user_id = ObjectId(current_user["_id"])
+
+    # 🔹 1. Buscar todos os usuários e eventos com interações (likes + participações)
+    reactions_cursor = db.event_reactions.find({"reaction": "like"})
+    participations_cursor = db.event_participants.find({"status": "confirmed"})
+
+    user_event_map = defaultdict(set)
+
+    # Reações positivas contam como interesse
+    async for r in reactions_cursor:
+        user_event_map[str(r["user_id"])].add(str(r["event_id"]))
+
+    # Participações também contam como interesse
+    async for p in participations_cursor:
+        user_event_map[str(p["user_id"])].add(str(p["event_id"]))
+
+    # 🔹 2. Garantir que temos pelo menos 2 usuários
+    if len(user_event_map) < 2:
+        raise HTTPException(
+            status_code=404, detail="Dados insuficientes para recomendações colaborativas")
+
+    user_ids = list(user_event_map.keys())
+    event_ids = list({eid for events in user_event_map.values()
+                     for eid in events})
+
+    # 🔹 3. Criar matriz usuário x evento
+    matrix = np.zeros((len(user_ids), len(event_ids)))
+    for i, uid in enumerate(user_ids):
+        for eid in user_event_map[uid]:
+            j = event_ids.index(eid)
+            matrix[i, j] = 1
+
+    # 🔹 4. Calcular similaridade de usuários
+    similarity = cosine_similarity(matrix)
+
+    # 🔹 5. Encontrar usuário atual na matriz
+    if str(user_id) not in user_ids:
+        raise HTTPException(
+            status_code=404, detail="Usuário não possui interações suficientes")
+
+    user_idx = user_ids.index(str(user_id))
+    user_similarities = similarity[user_idx]
+
+    # 🔹 6. Pegar top usuários semelhantes (exceto ele mesmo)
+    similar_users_idx = np.argsort(user_similarities)[::-1][1:6]  # top 5
+    similar_users = [user_ids[i]
+                     for i in similar_users_idx if user_similarities[i] > 0]
+
+    if not similar_users:
+        raise HTTPException(
+            status_code=404, detail="Nenhum usuário similar encontrado")
+
+    # 🔹 7. Coletar eventos que usuários semelhantes gostaram, mas o atual não viu
+    current_user_events = user_event_map[str(user_id)]
+    recommended_event_ids = set()
+
+    for uid in similar_users:
+        for eid in user_event_map[uid]:
+            if eid not in current_user_events:
+                recommended_event_ids.add(eid)
+
+    if not recommended_event_ids:
+        raise HTTPException(
+            status_code=404, detail="Nenhum evento recomendado encontrado")
+
+    # 🔹 8. Buscar dados dos eventos recomendados
+    recommended_events = []
+    async for ev in db.events.find({"_id": {"$in": [ObjectId(eid) for eid in recommended_event_ids]}}):
+        recommended_events.append({
+            "id": str(ev["_id"]),
+            "name": ev.get("name"),
+            "tags": ev.get("tags", []),
+            "category_prim": ev.get("category_prim"),
+            "image": ev.get("image"),
+            "detail": (ev.get("detail") or "")[:120] + "..."
+        })
+
+    return {
+        "method": "filtragem_colaborativa",
+        "similar_users_count": len(similar_users),
+        "recommended_events": recommended_events[:10]  # top 10
     }
 
 
