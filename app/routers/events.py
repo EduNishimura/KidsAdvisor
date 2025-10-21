@@ -10,8 +10,37 @@ from app.routers.categories import DEFAULT_TAGS
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+import re
 
 router = APIRouter()
+
+# Stopwords em português para filtros de texto
+stopwords_pt = {
+    "a", "ao", "aos", "aquela", "aquelas", "aquele", "aqueles", "aquilo", "as", "até", "com", "como", "da", "das", "do", "dos", "e", "ela", "elas", "ele", "eles", "em", "entre", "era", "eram", "essa", "essas", "esse", "esses", "esta", "estamos", "estas", "estava", "estavam", "este", "esteja", "estejam", "estejamos", "estes", "esteve", "estive", "estivemos", "estiver", "estivera", "estiveram", "estiverem", "estivermos", "estivesse", "estivessem", "estivéramos", "estivéssemos", "estou", "está", "estão", "eu", "foi", "fomos", "for", "fora", "foram", "forem", "formos", "fosse", "fossem", "fui", "fôramos", "fôssemos", "haja", "hajam", "hajamos", "havemos", "havia", "hei", "houve", "houvemos", "houver", "houvera", "houveram", "houverei", "houverem", "houveremos", "houveria", "houveriam", "houveríamos", "houverão", "houverá", "houveríamos", "houvesse", "houvessem", "houvéramos", "houvéssemos", "há", "hão", "isso", "isto", "já", "lhe", "lhes", "mais", "mas", "me", "mesmo", "meu", "meus", "minha", "minhas", "muito", "na", "nas", "nem", "no", "nos", "nossa", "nossas", "nosso", "nossos", "num", "numa", "não", "nós", "o", "os", "ou", "para", "pela", "pelas", "pelo", "pelos", "por", "qual", "quando", "que", "quem", "se", "seja", "sejam", "sejamos", "sem", "ser", "será", "serão", "seria", "seriam", "será", "serão", "seria", "seriam", "seu", "seus", "só", "sua", "suas", "são", "só", "também", "te", "tem", "temos", "tenha", "tenham", "tenhamos", "tenho", "ter", "terá", "terão", "teria", "teriam", "teve", "tinha", "tinham", "tive", "tivemos", "tiver", "tivera", "tiveram", "tiverem", "tivermos", "tivesse", "tivessem", "tivéramos", "tivéssemos", "tu", "tua", "tuas", "tém", "tínhamos", "um", "uma", "você", "vocês", "vos", "à", "às", "éramos", "é", "são", "está", "estão", "foi", "foram", "será", "serão", "seria", "seriam", "estava", "estavam", "estivera", "estiveram", "esteja", "estejam", "estivesse", "estivessem", "estiver", "estiverem", "hei", "há", "houve", "houverá", "houveria", "houveriam", "houver", "houverem", "houvera", "houveram", "haja", "hajam", "houvesse", "houvessem", "houvéramos", "houvéssemos", "tenho", "tem", "temos", "tém", "tinha", "tinham", "tínhamos", "tive", "tivemos", "teve", "terá", "terão", "teria", "teriam", "ter", "terem", "tera", "teram", "tenha", "tenham", "tenhamos", "tivesse", "tivessem", "tivéramos", "tivéssemos", "tiver", "tiverem", "tivera", "tiveram", "sou", "somos", "era", "éramos", "fui", "fomos", "será", "serão", "seria", "seriam", "seja", "sejam", "sejamos", "fosse", "fossem", "fôramos", "fôssemos", "for", "forem", "formos", "fora", "foram", "sou", "somos", "era", "éramos", "fui", "fomos", "será", "serão", "seria", "seriam", "seja", "sejam", "sejamos", "fosse", "fossem", "fôramos", "fôssemos", "for", "forem", "formos", "fora", "foram"
+}
+
+
+def clean_text(text: str) -> str:
+    """
+    Limpa o texto removendo stopwords em português e caracteres especiais.
+    """
+    if not text:
+        return ""
+    
+    # Converte para minúsculas
+    text = text.lower()
+    
+    # Remove caracteres especiais e números, mantém apenas letras e espaços
+    text = re.sub(r'[^a-záàâãéèêíìîóòôõúùûç\s]', ' ', text)
+    
+    # Remove espaços extras
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    # Remove stopwords
+    words = text.split()
+    filtered_words = [word for word in words if word not in stopwords_pt and len(word) > 2]
+    
+    return ' '.join(filtered_words)
 
 
 def event_to_out(event_doc: dict) -> dict:
@@ -336,9 +365,10 @@ async def recomendar_eventos_tfidf(current_user=Depends(get_current_user)):
         if e.get("detail"):
             text_parts.append(e["detail"])
 
-        # texto final
+        # texto final - limpa stopwords e caracteres especiais
         text = " ".join(text_parts)
-        corpus.append(text)
+        cleaned_text = clean_text(text)
+        corpus.append(cleaned_text)
         event_ids.append(e["_id"])
 
     # 🔹 Criar vetor TF-IDF
@@ -357,7 +387,8 @@ async def recomendar_eventos_tfidf(current_user=Depends(get_current_user)):
             user_tags.add(ev["category_sec"].get("name"))
 
     user_profile_text = " ".join(user_tags)
-    user_vector = vectorizer.transform([user_profile_text])
+    cleaned_user_profile = clean_text(user_profile_text)
+    user_vector = vectorizer.transform([cleaned_user_profile])
 
     # 🔹 Calcular similaridade do cosseno
     similarities = cosine_similarity(user_vector, tfidf_matrix)[0]
