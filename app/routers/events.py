@@ -26,20 +26,21 @@ def clean_text(text: str) -> str:
     """
     if not text:
         return ""
-    
+
     # Converte para minúsculas
     text = text.lower()
-    
+
     # Remove caracteres especiais e números, mantém apenas letras e espaços
     text = re.sub(r'[^a-záàâãéèêíìîóòôõúùûç\s]', ' ', text)
-    
+
     # Remove espaços extras
     text = re.sub(r'\s+', ' ', text).strip()
-    
+
     # Remove stopwords
     words = text.split()
-    filtered_words = [word for word in words if word not in stopwords_pt and len(word) > 2]
-    
+    filtered_words = [
+        word for word in words if word not in stopwords_pt and len(word) > 2]
+
     return ' '.join(filtered_words)
 
 
