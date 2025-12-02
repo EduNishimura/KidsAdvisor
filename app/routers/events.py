@@ -380,15 +380,26 @@ async def recomendar_eventos_tfidf(current_user=Depends(get_current_user)):
     # 🔹 Construir texto do perfil do usuário
     user_tags = set(current_user.get("preferred_tags", []))
 
-    # Adiciona tags e categorias dos eventos curtidos
-    async for ev in db.events.find({"_id": {"$in": liked_event_ids}}):
+   # 1. Combine todos os eventos de interesse (curtidos + participados)
+    interest_event_ids = list(set(liked_event_ids + participated_event_ids))
+
+    # 2. Busque os detalhes desses eventos
+    user_profile_texts = []
+    async for ev in db.events.find({"_id": {"$in": interest_event_ids}}):
         user_tags.update(ev.get("tags", []))
         if ev.get("category_prim"):
             user_tags.add(ev["category_prim"].get("name"))
         if ev.get("category_sec"):
             user_tags.add(ev["category_sec"].get("name"))
 
-    user_profile_text = " ".join(user_tags)
+        # Adiciona a descrição (detail) ao corpus do usuário
+        if ev.get("detail"):
+            user_profile_texts.append(ev.get("detail"))
+
+    # 3. Crie o perfil final
+    # Junta as tags únicas + todas as descrições
+    user_profile_text = " ".join(list(user_tags) + user_profile_texts)
+
     cleaned_user_profile = clean_text(user_profile_text)
     user_vector = vectorizer.transform([cleaned_user_profile])
 
